@@ -51,6 +51,8 @@ export function getAdminFirestore() {
     return null;
   }
 
+  const databaseId = process.env.FIRESTORE_DATABASE_ID?.trim();
+
   const app =
     getApps().length > 0
       ? getApps()[0]
@@ -62,7 +64,7 @@ export function getAdminFirestore() {
           }),
         });
 
-  return getFirestore(app);
+  return databaseId ? getFirestore(app, databaseId) : getFirestore(app);
 }
 
 export async function loadQuestionsForGradeAndSubject(input: {

@@ -28,6 +28,8 @@ Copy `.env.example` to `.env` and fill in Firebase and Gemini values when you ar
 
 Root `.env` values such as `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, and `FIREBASE_PRIVATE_KEY` are Firebase Admin credentials for server-side Firestore access and import jobs.
 
+Set `FIRESTORE_DATABASE_ID` when your Firebase project uses a named Firestore database instead of `(default)`.
+
 ## Import behavior
 
 `pnpm import:prepdog --grade 1` imports both Math and ELA for grade 1 by default.
@@ -48,4 +50,10 @@ Required GitHub repository secrets:
 - `FIREBASE_CLIENT_EMAIL`
 - `FIREBASE_PRIVATE_KEY`
 
+Optional GitHub repository secrets:
+
+- `FIRESTORE_DATABASE_ID` for projects that write to a named Firestore database instead of `(default)`
+
 The workflow runs `pnpm import:prepdog --grade <grade>` once for each supported grade and writes directly to Firestore.
+
+If `FIRESTORE_DATABASE_ID` is unset, the importer uses the default Firestore database.
