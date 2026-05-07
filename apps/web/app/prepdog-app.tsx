@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { getApp, getApps, initializeApp, type FirebaseOptions } from "firebase/app";
-import { createUserWithEmailAndPassword, getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
+import { GoogleAuthProvider, getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, type User } from "firebase/auth";
 import { collection, doc, getDoc, getDocs, getFirestore, query, setDoc, where } from "firebase/firestore";
 
 import {
@@ -98,10 +98,8 @@ export function PrepdogApp() {
     return storedGrade ? Number(storedGrade) : 1;
   });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [parentEmail, setParentEmail] = useState("");
-  const [parentPassword, setParentPassword] = useState("");
   const [authStatus, setAuthStatus] = useState(() =>
-    isFirebaseClientConfigured() ? "Parent account ready. Sign in to sync saved results." : "Parent demo mode",
+    isFirebaseClientConfigured() ? PARENT_SYNC_MESSAGE : "Using this device only until Firebase is configured.",
   );
   const [parentUser, setParentUser] = useState<User | null>(null);
   const [activeSubject, setActiveSubject] = useState<Subject | null>(null);
@@ -166,7 +164,6 @@ export function PrepdogApp() {
         return;
       }
 
-      setParentEmail(user.email ?? "");
       setAuthStatus(`Signed in as ${user.email ?? user.uid}`);
 
       try {
@@ -411,27 +408,28 @@ export function PrepdogApp() {
     }
   }
 
-  function handleParentAuth(mode: "signin" | "signup") {
+  function handleParentGoogleSignIn() {
     startSubmittingAuth(async () => {
       const app = getFirebaseClientApp();
       if (!app) {
-        setAuthStatus("Demo mode active. Add Firebase env vars to enable parent login.");
+        setAuthStatus("Firebase client config is missing. Add the app env values to enable parent sign-in.");
         return;
       }
 
       try {
         const auth = getAuth(app);
-        if (mode === "signin") {
-          await signInWithEmailAndPassword(auth, parentEmail, parentPassword);
-        } else {
-          await createUserWithEmailAndPassword(auth, parentEmail, parentPassword);
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: "select_account" });
+
+        try {
+          await signInWithPopup(auth, provider);
+        } catch {
+          await signInWithRedirect(auth, provider);
+          setAuthStatus("Redirecting to Google sign-in...");
+          return;
         }
 
-        setAuthStatus(
-          mode === "signin"
-            ? `Signed in as ${parentEmail}`
-            : `Created parent account for ${parentEmail}. ${PARENT_SYNC_MESSAGE}`,
-        );
+        setAuthStatus("Signed in with Google.");
       } catch (error) {
         setAuthStatus(error instanceof Error ? error.message : "Parent authentication failed.");
       }
@@ -511,44 +509,28 @@ export function PrepdogApp() {
                 <p className="mt-1 text-xs text-slate-500">
                   {getParentAccountDescription(isFirebaseReady)}
                 </p>
-                <input
-                  className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none"
-                  placeholder="parent@example.com"
-                  value={parentEmail}
-                  onChange={(event) => setParentEmail(event.target.value)}
-                />
-                <input
-                  className="mt-3 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none"
-                  type="password"
-                  placeholder="Password"
-                  value={parentPassword}
-                  onChange={(event) => setParentPassword(event.target.value)}
-                />
-                <div className="mt-4 grid grid-cols-2 gap-3">
+                {parentUser ? (
+                  <div className="mt-4 rounded-[1.5rem] border border-slate-100 bg-slate-50 px-4 py-4">
+                    <p className="text-sm font-semibold text-slate-900">{parentUser.displayName ?? "Google parent account"}</p>
+                    <p className="mt-1 text-xs text-slate-500">{parentUser.email ?? parentUser.uid}</p>
+                    <button
+                      type="button"
+                      className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-white"
+                      onClick={handleSignOut}
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                ) : (
                   <button
                     type="button"
-                    className="rounded-2xl bg-amber-500 px-4 py-3 font-semibold text-white transition hover:bg-amber-600"
+                    className="mt-4 w-full rounded-2xl bg-slate-900 px-4 py-3 font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
                     disabled={isSubmittingAuth}
-                    onClick={() => handleParentAuth("signin")}
+                    onClick={handleParentGoogleSignIn}
                   >
-                    Sign in
+                    Continue with Google
                   </button>
-                  <button
-                    type="button"
-                    className="rounded-2xl border border-amber-300 px-4 py-3 font-semibold text-amber-800 transition hover:bg-amber-50"
-                    disabled={isSubmittingAuth}
-                    onClick={() => handleParentAuth("signup")}
-                  >
-                    Create account
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  className="mt-3 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
-                  onClick={handleSignOut}
-                >
-                  Sign out
-                </button>
+                )}
                 <p className="mt-3 text-xs text-slate-500">{authStatus}</p>
               </div>
 

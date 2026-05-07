@@ -14,10 +14,11 @@ describe("parent settings config", () => {
 
   it("explains that signed-in parents sync across devices", () => {
     expect(getParentAccountDescription(true)).toContain(PARENT_SYNC_MESSAGE);
+    expect(getParentAccountDescription(true)).toContain("Google");
   });
 
   it("keeps demo mode messaging clear when firebase is unavailable", () => {
-    expect(getParentAccountDescription(false)).toContain("demo mode");
+    expect(getParentAccountDescription(false)).toContain("single device");
   });
 
   it("shows cloud sync when a parent is signed in", () => {
@@ -29,7 +30,7 @@ describe("parent settings config", () => {
 
   it("shows local mode when a parent is not signed in", () => {
     expect(getSyncIndicator({ isFirebaseConfigured: true, isSignedIn: false, isLoading: false })).toEqual({
-      label: "Local demo mode",
+      label: "Using this device only",
       tone: "amber",
     });
   });

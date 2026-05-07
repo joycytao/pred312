@@ -26,15 +26,15 @@ export function getSyncIndicator({
   }
 
   return {
-    label: "Local demo mode",
+    label: "Using this device only",
     tone: "amber",
   } as const;
 }
 
 export function getParentAccountDescription(isFirebaseConfigured: boolean) {
   if (!isFirebaseConfigured) {
-    return "Firebase is not configured yet, so the app stays in demo mode until you add .env values.";
+    return "Firebase is not configured yet, so parent settings stay on this single device until you add the app env values.";
   }
 
-  return `Firebase client config detected. You can create or sign in to a parent account. ${PARENT_SYNC_MESSAGE}`;
+  return `Firebase client config detected. Continue with Google for the parent account. ${PARENT_SYNC_MESSAGE}`;
 }
