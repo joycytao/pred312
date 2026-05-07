@@ -1,0 +1,11 @@
+node_modules/
+.pnpm-store/
+.next/
+out/
+dist/
+coverage/
+.env
+.env.local
+.env.*.local
+.DS_Store
+.superpowers/

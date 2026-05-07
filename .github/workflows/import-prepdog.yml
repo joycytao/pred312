@@ -1,0 +1,53 @@
+name: Import PrepDog Content
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: import-prepdog-content
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        grade: [1, 2, 3]
+
+    env:
+      FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+      FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
+      FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Validate Firebase Admin secrets
+        run: |
+          test -n "$FIREBASE_PROJECT_ID"
+          test -n "$FIREBASE_CLIENT_EMAIL"
+          test -n "$FIREBASE_PRIVATE_KEY"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Import grade ${{ matrix.grade }}
+        run: pnpm import:prepdog --grade ${{ matrix.grade }}

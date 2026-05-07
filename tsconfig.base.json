@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "baseUrl": ".",
+    "paths": {
+      "@prepdog/assessment": ["packages/assessment/src/index.ts"],
+      "@prepdog/content": ["packages/content/src/index.ts"],
+      "@prepdog/firebase": ["packages/firebase/src/index.ts"]
+    }
+  }
+}
