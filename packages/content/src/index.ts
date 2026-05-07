@@ -17,6 +17,7 @@ export type PrepdogQuestion = {
   cluster: string;
   standardCode: string;
   prompt: string;
+  imageUrls?: string[];
   choices: QuestionChoice[];
   correctChoiceId: string;
   difficultyLevel: number;
@@ -165,6 +166,7 @@ export function parsePrepDogTestPage(html: string, pool: QuestionPool): Imported
 
   const questions = questionBlocks.flatMap((rawQuestion, index) => {
     const prompt = normalizePrompt(rawQuestion);
+    const imageUrls = extractImageUrls(rawQuestion, pool.sourceUrl);
     const choiceEntries = extractChoices(prompt);
     const promptWithoutChoices = stripChoicesFromPrompt(prompt);
     const correctChoiceId = (answerMap[index] ?? "A").trim().toUpperCase();
@@ -178,6 +180,7 @@ export function parsePrepDogTestPage(html: string, pool: QuestionPool): Imported
       cluster: pool.cluster,
       standardCode: pool.standardCode,
       prompt: promptWithoutChoices,
+      imageUrls,
       choices: choiceEntries,
       correctChoiceId,
       difficultyLevel,
@@ -300,6 +303,21 @@ function normalizePrompt(rawQuestion: string) {
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function extractImageUrls(rawQuestion: string, sourceUrl: string) {
+  const decodedQuestion = decode(rawQuestion);
+  const imageMatches = [...decodedQuestion.matchAll(/<img[^>]*src=["']([^"']+)["'][^>]*>/gi)];
+
+  const imageUrls = imageMatches.flatMap((match) => {
+    try {
+      return [new URL(match[1], sourceUrl).toString()];
+    } catch {
+      return [];
+    }
+  });
+
+  return imageUrls.length > 0 ? [...new Set(imageUrls)] : undefined;
 }
 
 function extractChoices(prompt: string): QuestionChoice[] {

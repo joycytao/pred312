@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "pnpm --filter web dev",
     "build": "pnpm -r build",
+    "build:firebase-static": "node scripts/build-firebase-static.mjs",
+    "deploy:firebase-static": "pnpm build:firebase-static && firebase deploy --only hosting",
     "lint": "pnpm -r lint",
     "test": "pnpm --filter @prepdog/assessment test",
     "import:prepdog": "tsx scripts/import-prepdog.ts"

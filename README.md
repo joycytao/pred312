@@ -18,6 +18,7 @@ pnpm install
 pnpm dev
 pnpm test
 pnpm import:prepdog --grade 1 --dry-run --limit 1
+pnpm build:firebase-static
 ```
 
 ## Environment
@@ -28,7 +29,7 @@ Copy `.env.example` to `.env` and fill in Firebase and Gemini values when you ar
 
 Root `.env` values such as `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, and `FIREBASE_PRIVATE_KEY` are Firebase Admin credentials for server-side Firestore access and import jobs.
 
-Set `FIRESTORE_DATABASE_ID` when your Firebase project uses a named Firestore database instead of `(default)`.
+Set `NEXT_PUBLIC_STATIC_FIREBASE_HOSTING=1` only when you are building the free-plan static Hosting version. In that mode, question loading still comes from Firestore, but wrong-answer explanations use an on-device fallback instead of the secured Gemini route.
 
 ## Import behavior
 
@@ -57,3 +58,16 @@ Optional GitHub repository secrets:
 The workflow runs `pnpm import:prepdog --grade <grade>` once for each supported grade and writes directly to Firestore.
 
 If `FIRESTORE_DATABASE_ID` is unset, the importer uses the default Firestore database.
+
+## Firebase Hosting Test Deploy
+
+For Spark-plan testing, deploy the static export instead of App Hosting:
+
+```bash
+pnpm build:firebase-static
+firebase deploy --only hosting
+```
+
+This serves the exported site from `apps/web/out` using `firebase.json`.
+
+Static Hosting keeps Google sign-in and Firestore question loading, but it does not expose `GEMINI_API_KEY` to the browser, so explanations fall back to a local practice tip during the test deploy.

@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:firebase-static": "NEXT_PUBLIC_STATIC_FIREBASE_HOSTING=1 STATIC_FIREBASE_HOSTING=1 next build",
     "start": "next start",
     "lint": "eslint"
   },

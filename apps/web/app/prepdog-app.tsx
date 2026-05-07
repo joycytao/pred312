@@ -1,9 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { getApp, getApps, initializeApp, type FirebaseOptions } from "firebase/app";
 import { GoogleAuthProvider, getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, type User } from "firebase/auth";
-import { collection, doc, getDoc, getDocs, getFirestore, query, setDoc, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, getFirestore, limit, query, setDoc, where } from "firebase/firestore";
 
 import {
   createInitialAssessmentState,
@@ -17,7 +18,12 @@ import {
   buildAnswerTransition,
   getVisibleQuestionNumber,
 } from "./assessment-flow";
+import {
+  buildFallbackExplanation,
+  shouldUseLocalExplanationFallback,
+} from "./explanation-fallback";
 import { getQuestionAvailabilityMessage } from "./question-availability";
+import { resolveQuestionBank } from "./question-source";
 import {
   createSavedSessionRecord,
   mergeSavedSessions,
@@ -125,6 +131,9 @@ export function PrepdogApp() {
   const [isSubmittingAuth, startSubmittingAuth] = useTransition();
   const availableGrades = SUPPORTED_GRADES;
   const gradeRef = useRef(grade);
+  const useLocalExplanationFallback = shouldUseLocalExplanationFallback(
+    process.env.NEXT_PUBLIC_STATIC_FIREBASE_HOSTING,
+  );
   const isFirebaseReady = isFirebaseClientConfigured();
   const syncIndicator = getSyncIndicator({
     isFirebaseConfigured: isFirebaseReady,
@@ -219,10 +228,30 @@ export function PrepdogApp() {
 
   async function beginAssessment(subject: Subject) {
     startLoadingQuestions(async () => {
-      const response = await fetch(`/api/questions?grade=${grade}&subject=${subject}`);
-      const payload = (await response.json()) as { questions: PrepdogQuestion[] };
+      const questions = await resolveQuestionBank({
+        grade,
+        subject,
+        loadRemoteQuestions: async () => {
+          const app = getFirebaseClientApp();
+          if (!app) {
+            return [];
+          }
+
+          const snapshot = await getDocs(
+            query(
+              collection(getFirestore(app), "questions"),
+              where("grade", "==", grade),
+              where("subject", "==", subject),
+              where("isActive", "==", true),
+              limit(120),
+            ),
+          );
+
+          return snapshot.docs.map((document) => document.data() as PrepdogQuestion);
+        },
+      });
       const initialState = createInitialAssessmentState({ grade, subject });
-      const firstQuestion = selectNextQuestion(initialState, payload.questions);
+      const firstQuestion = selectNextQuestion(initialState, questions);
 
       if (!firstQuestion) {
         setNoticeMessage(getQuestionAvailabilityMessage({ grade, subject }));
@@ -230,7 +259,7 @@ export function PrepdogApp() {
       }
 
       setActiveSubject(subject);
-      setQuestionBank(payload.questions);
+      setQuestionBank(questions);
       setAssessmentState(initialState);
       setCurrentQuestion(firstQuestion ?? null);
       setPendingAssessmentState(null);
@@ -327,25 +356,55 @@ export function PrepdogApp() {
     }
 
     startExplaining(async () => {
-      const response = await fetch("/api/explain", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          grade,
-          subject: activeSubject,
-          prompt: currentQuestion.prompt,
-          choices: currentQuestion.choices,
-          correctChoiceId: currentQuestion.correctChoiceId,
-          selectedChoiceId,
-        }),
+      const fallbackExplanation = buildFallbackExplanation({
+        correctChoiceText:
+          currentQuestion.choices.find((choice) => choice.id === currentQuestion.correctChoiceId)?.text ??
+          "the correct choice",
+        isMath: assessmentState.subject === "math",
       });
 
-      const payload = (await response.json()) as { explanation: string; fallback?: boolean };
-      setExplanation({
-        title: payload.fallback ? "Explanation unavailable" : "Let's learn from this one",
-        body: payload.explanation,
-        isError: payload.fallback,
-      });
+      if (useLocalExplanationFallback) {
+        setExplanation({
+          title: "Let's learn from this one",
+          body: fallbackExplanation,
+        });
+        setAssessmentState(transition.nextAssessmentState);
+        setPendingAssessmentState(transition.pendingAssessmentState);
+        setSelectedChoiceId(null);
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/explain", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            grade,
+            subject: activeSubject,
+            prompt: currentQuestion.prompt,
+            choices: currentQuestion.choices,
+            correctChoiceId: currentQuestion.correctChoiceId,
+            selectedChoiceId,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Explanation request failed");
+        }
+
+        const payload = (await response.json()) as { explanation: string; fallback?: boolean };
+        setExplanation({
+          title: payload.fallback ? "Explanation unavailable" : "Let's learn from this one",
+          body: payload.fallback ? fallbackExplanation : payload.explanation,
+          isError: payload.fallback,
+        });
+      } catch {
+        setExplanation({
+          title: "Let's learn from this one",
+          body: fallbackExplanation,
+        });
+      }
+
       setAssessmentState(transition.nextAssessmentState);
       setPendingAssessmentState(transition.pendingAssessmentState);
       setSelectedChoiceId(null);
@@ -645,6 +704,22 @@ export function PrepdogApp() {
                     <div>
                       <p className="text-sm font-semibold uppercase tracking-[0.2em] text-amber-800">{currentQuestion.domain}</p>
                       <p className="mt-4 text-2xl font-semibold leading-9 text-slate-900">{currentQuestion.prompt}</p>
+                      {currentQuestion.imageUrls && currentQuestion.imageUrls.length > 0 ? (
+                        <div className="mt-5 grid gap-4">
+                          {currentQuestion.imageUrls.map((imageUrl, index) => (
+                            <Image
+                              key={imageUrl}
+                              src={imageUrl}
+                              alt={`Illustration for question ${getVisibleQuestionNumber({ assessmentState })}${currentQuestion.imageUrls && currentQuestion.imageUrls.length > 1 ? ` image ${index + 1}` : ""}`}
+                              width={1200}
+                              height={900}
+                              sizes="(max-width: 640px) 100vw, 640px"
+                              unoptimized
+                              className="max-h-72 w-auto max-w-full rounded-[1.5rem] border border-amber-200 bg-white object-contain shadow-sm"
+                            />
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                     <button
                       type="button"
