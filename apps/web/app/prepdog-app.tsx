@@ -424,6 +424,14 @@ export function PrepdogApp() {
     setNoticeMessage(null);
   }
 
+  function restartCurrentPractice() {
+    if (!activeSubject || isLoadingQuestions) {
+      return;
+    }
+
+    void beginAssessment(activeSubject);
+  }
+
   async function persistCompletedSession(input: {
     grade: number;
     subject: Subject;
@@ -641,7 +649,7 @@ export function PrepdogApp() {
           <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
             <div>
               <h1 className="max-w-4xl font-[family-name:var(--font-display)] text-[clamp(3.3rem,8vw,6.5rem)] leading-[0.92] text-slate-900">
-                Bright, brave test practice for growing readers and mathematicians.
+                Let&apos;s Get Started...
               </h1>
               <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-700">
                 Kids choose Math or English Language Arts, answer 40 adaptive questions, hear questions aloud, and get an AI teacher explanation after mistakes.
@@ -755,15 +763,34 @@ export function PrepdogApp() {
                   })}
                 </div>
 
-                <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mt-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white/75 px-5 py-3 text-sm font-semibold text-slate-600 shadow-[0_10px_30px_rgba(15,23,42,0.08)] transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:text-slate-900"
+                      onClick={resetAssessment}
+                    >
+                      <span className="text-base">⌂</span>
+                      Home
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isLoadingQuestions}
+                      className="inline-flex items-center justify-center gap-2 rounded-full border border-amber-300 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(255,247,224,0.96))] px-5 py-3 text-sm font-semibold text-amber-900 shadow-[0_14px_32px_rgba(245,158,11,0.16)] ring-1 ring-white/70 transition duration-200 hover:-translate-y-0.5 hover:border-amber-400 hover:shadow-[0_18px_38px_rgba(245,158,11,0.22)] disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={restartCurrentPractice}
+                    >
+                      <span className="text-base">↺</span>
+                      Restart
+                    </button>
+                  </div>
                   <button
                     type="button"
                     disabled={!selectedChoiceId || isExplaining}
-                    className="inline-flex items-center justify-center gap-3 self-end rounded-full bg-emerald-500 px-7 py-4 text-base font-bold text-white shadow-lg transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-emerald-300"
+                    className="inline-flex items-center justify-center gap-3 rounded-full bg-[linear-gradient(135deg,#16a34a,#10b981)] px-7 py-4 text-base font-bold text-white shadow-[0_18px_40px_rgba(16,185,129,0.28)] ring-1 ring-emerald-300/40 transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_44px_rgba(16,185,129,0.34)] disabled:cursor-not-allowed disabled:bg-emerald-300 disabled:shadow-none sm:self-end"
                     onClick={handleSubmitAnswer}
                   >
                     <span className="text-xl">✅</span>
-                    Check answer
+                    Submit answer
                   </button>
                 </div>
               </section>
