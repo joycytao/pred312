@@ -110,7 +110,7 @@ export async function upsertImportedQuestionPool(importedPool: ImportedQuestionP
   for (const question of importedPool.questions) {
     const questionRef = firestore.collection("questions").doc(question.id);
     batch.set(questionRef, {
-      ...question,
+      ...stripUndefinedFields(question),
       poolId: importedPool.pool.id,
       tags: [importedPool.pool.domain, importedPool.pool.cluster],
       isActive: true,
@@ -119,4 +119,14 @@ export async function upsertImportedQuestionPool(importedPool: ImportedQuestionP
   }
 
   await batch.commit();
+}
+
+export function stripUndefinedFields<T extends Record<string, unknown>>(value: T) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entryValue]) => entryValue !== undefined),
+  ) as {
+    [K in keyof T as undefined extends T[K] ? never : K]: Exclude<T[K], undefined>;
+  } & {
+    [K in keyof T as undefined extends T[K] ? K : never]?: Exclude<T[K], undefined>;
+  };
 }
