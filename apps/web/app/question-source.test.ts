@@ -56,4 +56,18 @@ describe("resolveQuestionBank", () => {
     expect(result.length).toBeGreaterThan(0);
     expect(result[0]?.subject).toBe("ela");
   });
+
+  it("keeps only exact grade and subject matches from Firestore", async () => {
+    const result = await resolveQuestionBank({
+      grade: 1,
+      subject: "math",
+      loadRemoteQuestions: async () => [
+        remoteQuestion,
+        { ...remoteQuestion, id: "wrong-grade", grade: 2 },
+        { ...remoteQuestion, id: "wrong-subject", subject: "ela" },
+      ],
+    });
+
+    expect(result).toEqual([remoteQuestion]);
+  });
 });

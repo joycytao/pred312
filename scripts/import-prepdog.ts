@@ -1,5 +1,6 @@
 import { extractGradePagePools, parsePrepDogTestPage, type Subject } from "@prepdog/content";
-import { upsertImportedQuestionPool } from "@prepdog/firebase";
+
+import { upsertImportedQuestionPoolViaRest } from "./firestore-rest";
 
 const BASE_URL = "https://www.prepdog.org";
 
@@ -24,7 +25,7 @@ async function main() {
         continue;
       }
 
-      await upsertImportedQuestionPool(importedPool);
+      await upsertImportedQuestionPoolViaRest(importedPool);
       console.log(`Saved ${importedPool.questions.length} questions from ${pool.sourceUrl}`);
     }
   }

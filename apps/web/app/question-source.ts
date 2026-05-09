@@ -11,8 +11,12 @@ export async function resolveQuestionBank({
 }) {
   try {
     const remoteQuestions = await loadRemoteQuestions();
-    if (remoteQuestions.length > 0) {
-      return remoteQuestions;
+    const exactMatches = remoteQuestions.filter(
+      (question) => question.grade === grade && question.subject === subject,
+    );
+
+    if (exactMatches.length > 0) {
+      return exactMatches;
     }
   } catch {
     // Fall back to local demo content when Firestore is unavailable.

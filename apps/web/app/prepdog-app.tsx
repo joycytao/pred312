@@ -4,12 +4,11 @@ import Image from "next/image";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { getApp, getApps, initializeApp, type FirebaseOptions } from "firebase/app";
 import { GoogleAuthProvider, getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, type User } from "firebase/auth";
-import { collection, doc, getDoc, getDocs, getFirestore, limit, query, setDoc, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, getFirestore, query, setDoc, where } from "firebase/firestore";
 
 import {
   createInitialAssessmentState,
   evaluateAnswer,
-  selectNextQuestion,
   type AssessmentState,
 } from "@prepdog/assessment";
 import type { PrepdogQuestion, Subject } from "@prepdog/content";
@@ -41,6 +40,7 @@ import {
   PARENT_SYNC_MESSAGE,
   SUPPORTED_GRADES,
 } from "./parent-settings";
+import { selectSessionQuestion } from "./starting-question";
 
 type ResponseRecord = {
   questionNumber: number;
@@ -59,7 +59,7 @@ const SUBJECT_LABELS: Record<Subject, string> = {
   math: "Math",
 };
 
-const TOTAL_QUESTIONS = 40;
+const TOTAL_QUESTIONS = 20;
 
 function getFirebaseClientConfig(): FirebaseOptions | null {
   if (
@@ -131,6 +131,7 @@ export function PrepdogApp() {
   const [isSubmittingAuth, startSubmittingAuth] = useTransition();
   const availableGrades = SUPPORTED_GRADES;
   const gradeRef = useRef(grade);
+  const sessionStartOffsetRef = useRef(0);
   const useLocalExplanationFallback = shouldUseLocalExplanationFallback(
     process.env.NEXT_PUBLIC_STATIC_FIREBASE_HOSTING,
   );
@@ -243,7 +244,6 @@ export function PrepdogApp() {
               where("grade", "==", grade),
               where("subject", "==", subject),
               where("isActive", "==", true),
-              limit(120),
             ),
           );
 
@@ -251,12 +251,18 @@ export function PrepdogApp() {
         },
       });
       const initialState = createInitialAssessmentState({ grade, subject });
-      const firstQuestion = selectNextQuestion(initialState, questions);
+      const firstQuestion = selectSessionQuestion({
+        state: initialState,
+        questions,
+        sessionOffset: sessionStartOffsetRef.current,
+      });
 
       if (!firstQuestion) {
         setNoticeMessage(getQuestionAvailabilityMessage({ grade, subject }));
         return;
       }
+
+      sessionStartOffsetRef.current += 1;
 
       setActiveSubject(subject);
       setQuestionBank(questions);
@@ -294,7 +300,11 @@ export function PrepdogApp() {
       return;
     }
 
-    const nextQuestion = selectNextQuestion(resolvedState, questionBank);
+    const nextQuestion = selectSessionQuestion({
+      state: resolvedState,
+      questions: questionBank,
+      sessionOffset: sessionStartOffsetRef.current - 1,
+    });
     setAssessmentState(resolvedState);
     setCurrentQuestion(nextQuestion ?? null);
     setPendingAssessmentState(null);
@@ -652,7 +662,7 @@ export function PrepdogApp() {
                 Let&apos;s Get Started...
               </h1>
               <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-700">
-                Kids choose Math or English Language Arts, answer 40 adaptive questions, hear questions aloud, and get an AI teacher explanation after mistakes.
+                Kids choose Math or English Language Arts, answer 20 adaptive questions, hear questions aloud, and get an AI teacher explanation after mistakes.
               </p>
             </div>
             <div className="rounded-[2rem] border border-white/60 bg-white/70 px-5 py-4 shadow-lg backdrop-blur xl:min-w-[18rem]">
@@ -743,6 +753,7 @@ export function PrepdogApp() {
                 <div className="mt-6 grid gap-4">
                   {currentQuestion.choices.map((choice) => {
                     const isSelected = selectedChoiceId === choice.id;
+                    const isImageOnlyChoice = Boolean(choice.imageUrl) && choice.text === `Image option ${choice.id}`;
                     return (
                       <button
                         key={choice.id}
@@ -757,7 +768,22 @@ export function PrepdogApp() {
                         <span className={`flex h-12 w-12 items-center justify-center rounded-full text-lg font-black ${isSelected ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-700"}`}>
                           {choice.id}
                         </span>
-                        <span className="text-lg font-medium text-slate-900">{choice.text}</span>
+                        <span className="flex min-w-0 flex-1 flex-col gap-3">
+                          {choice.imageUrl ? (
+                            <Image
+                              src={choice.imageUrl}
+                              alt={`Answer choice ${choice.id}`}
+                              width={720}
+                              height={480}
+                              sizes="(max-width: 640px) 100vw, 320px"
+                              unoptimized
+                              className="max-h-44 w-auto max-w-full rounded-[1.25rem] border border-amber-200 bg-white object-contain shadow-sm"
+                            />
+                          ) : null}
+                          {!isImageOnlyChoice ? (
+                            <span className="text-lg font-medium text-slate-900">{choice.text}</span>
+                          ) : null}
+                        </span>
                       </button>
                     );
                   })}
@@ -852,7 +878,7 @@ export function PrepdogApp() {
                 <p className="text-sm font-black uppercase tracking-[0.25em] text-slate-500">How it works</p>
                 <ol className="mt-4 space-y-4 text-sm leading-6 text-slate-700">
                   <li>Choose a subject from the landing page.</li>
-                  <li>Answer 40 adaptive questions for the selected grade.</li>
+                  <li>Answer 20 adaptive questions for the selected grade.</li>
                   <li>Tap 🗣️ next to the question when your child wants to hear the prompt and choices.</li>
                   <li>Press ✅ only after checking the final answer choice.</li>
                 </ol>

@@ -7,6 +7,7 @@ export type DifficultyBand = "low" | "medium" | "high";
 export type QuestionChoice = {
   id: string;
   text: string;
+  imageUrl?: string;
 };
 
 export type PrepdogQuestion = {
@@ -113,14 +114,23 @@ export function extractGradePagePools(html: string, grade: number, subjectFilter
       text: $(element).text().replace(/\s+/g, " ").trim(),
       parentText: $(element).parent().text().replace(/\s+/g, " ").trim(),
     }))
-    .filter((link) => /^Test\s+\d+$/i.test(link.text) && /\/\d+(st|nd|rd|th)\//.test(link.href));
+    .filter(
+      (link) =>
+        /^Test\s+\d+$/i.test(link.text) &&
+        /\/\d+(st|nd|rd|th)\//.test(link.href) &&
+        isExpectedGradeSourceUrl(link.href, grade),
+    );
+
+  if (links.length === 0) {
+    return extractPoolsFromSameGradeHtmlLinks($, grade, subjectFilter);
+  }
 
   let lastMathDomain: string = MATH_DOMAINS[0].domain;
   let lastMathCluster: string = MATH_DOMAINS[0].cluster;
   let lastElaDomain: string = ELA_DOMAINS[0].domain;
   let lastElaCluster: string = ELA_DOMAINS[0].cluster;
 
-  return links.flatMap((link) => {
+  const pools = links.flatMap((link) => {
     const line = link.parentText;
     const subject = inferSubject(link.href, line);
     if (subjectFilter && subject !== subjectFilter) {
@@ -158,6 +168,99 @@ export function extractGradePagePools(html: string, grade: number, subjectFilter
       sourceUrl: new URL(link.href, "https://www.prepdog.org").toString(),
     } satisfies QuestionPool];
   });
+
+  return dedupeBySourceUrl(pools);
+}
+
+function extractPoolsFromSameGradeHtmlLinks($: cheerio.CheerioAPI, grade: number, subjectFilter?: Subject) {
+  const links = $("a")
+    .toArray()
+    .map((element) => ({
+      href: $(element).attr("href") ?? "",
+      text: $(element).text().replace(/\s+/g, " ").trim(),
+      title: $(element).attr("title")?.replace(/\s+/g, " ").trim() ?? "",
+    }))
+    .filter((link) => isImportableSameGradeHtmlLink(link.href, grade));
+
+  const pools = links.flatMap((link, index) => {
+    const sourceUrl = new URL(link.href, "https://www.prepdog.org").toString();
+    const sourceText = `${link.text} ${link.title}`.trim();
+    const subject = inferSubject(sourceUrl, sourceText);
+    if (subjectFilter && subject !== subjectFilter) {
+      return [];
+    }
+
+    const domain = inferDomainFromHref(sourceUrl, grade, subject) ?? (subject === "math" ? "Operations & Algebraic Thinking" : "Language");
+    const cluster = inferClusterFromHref(sourceUrl, grade, subject) ?? domain;
+    const standardCode = extractStandardCode(sourceText) ?? deriveStandardCode(subject, domain, index + 1, sourceUrl);
+    const title = extractTitleFromHref(sourceUrl) ?? (sourceText || `${domain} practice ${index + 1}`);
+
+    return [{
+      id: `${grade}-${subject}-${slugify(domain)}-${slugify(sourceUrl)}`,
+      grade,
+      subject,
+      domain,
+      cluster,
+      standardCode,
+      title,
+      testNumber: index + 1,
+      sourceUrl,
+    } satisfies QuestionPool];
+  });
+
+  return dedupeBySourceUrl(pools);
+}
+
+function isExpectedGradeSourceUrl(href: string, grade: number) {
+  try {
+    const pathname = new URL(href, "https://www.prepdog.org").pathname.toLowerCase();
+    return pathname.includes(`/${ordinalFolder(grade).toLowerCase()}/`);
+  } catch {
+    return false;
+  }
+}
+
+function isImportableSameGradeHtmlLink(href: string, grade: number) {
+  try {
+    const pathname = new URL(href, "https://www.prepdog.org").pathname.toLowerCase();
+    return (
+      pathname.endsWith(".html") &&
+      pathname.includes(`/${ordinalFolder(grade).toLowerCase()}/`) &&
+      !pathname.endsWith(`/${grade}-common.html`) &&
+      !pathname.includes("_files/")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function dedupeBySourceUrl(pools: QuestionPool[]) {
+  const seen = new Set<string>();
+
+  return pools.filter((pool) => {
+    if (seen.has(pool.sourceUrl)) {
+      return false;
+    }
+
+    seen.add(pool.sourceUrl);
+    return true;
+  });
+}
+
+function ordinalFolder(grade: number) {
+  if (grade === 1) {
+    return "1st";
+  }
+
+  if (grade === 2) {
+    return "2nd";
+  }
+
+  if (grade === 3) {
+    return "3rd";
+  }
+
+  return `${grade}th`;
 }
 
 export function parsePrepDogTestPage(html: string, pool: QuestionPool): ImportedQuestionPool {
@@ -165,10 +268,15 @@ export function parsePrepDogTestPage(html: string, pool: QuestionPool): Imported
   const questionBlocks = parseScriptArray(html, "questionText");
 
   const questions = questionBlocks.flatMap((rawQuestion, index) => {
+    const choiceEntries = extractChoicesFromHtml(rawQuestion, pool.sourceUrl);
     const prompt = normalizePrompt(rawQuestion);
-    const imageUrls = extractImageUrls(rawQuestion, pool.sourceUrl);
-    const choiceEntries = extractChoices(prompt);
-    const promptWithoutChoices = stripChoicesFromPrompt(prompt);
+    const promptWithoutChoices = choiceEntries.length > 0
+      ? extractPromptFromHtml(rawQuestion)
+      : stripChoicesFromPrompt(prompt);
+    const imageUrls = choiceEntries.length > 0
+      ? extractPromptImageUrls(rawQuestion, pool.sourceUrl)
+      : extractImageUrls(rawQuestion, pool.sourceUrl);
+    const resolvedChoices = choiceEntries.length > 0 ? choiceEntries : extractChoices(prompt);
     const correctChoiceId = (answerMap[index] ?? "A").trim().toUpperCase();
     const difficultyLevel = mapDifficultyLevel(pool.testNumber, index);
 
@@ -181,11 +289,11 @@ export function parsePrepDogTestPage(html: string, pool: QuestionPool): Imported
       standardCode: pool.standardCode,
       prompt: promptWithoutChoices,
       imageUrls,
-      choices: choiceEntries,
+      choices: resolvedChoices,
       correctChoiceId,
       difficultyLevel,
       difficultyBand: difficultyBandFromLevel(difficultyLevel),
-      speechText: `${promptWithoutChoices} ${choiceEntries.map((choice) => `${choice.id}. ${choice.text}`).join(" ")}`,
+      speechText: `${promptWithoutChoices} ${resolvedChoices.map((choice) => `${choice.id}. ${choice.text}`).join(" ")}`,
       sourceUrl: pool.sourceUrl,
       sourceQuestionIndex: index + 1,
     } satisfies PrepdogQuestion;
@@ -305,6 +413,12 @@ function normalizePrompt(rawQuestion: string) {
     .trim();
 }
 
+function extractPromptFromHtml(rawQuestion: string) {
+  const { $, root } = loadQuestionHtml(rawQuestion);
+  stripChoiceMarkup($, root);
+  return normalizePrompt(root.html() ?? "");
+}
+
 function extractImageUrls(rawQuestion: string, sourceUrl: string) {
   const decodedQuestion = decode(rawQuestion);
   const imageMatches = [...decodedQuestion.matchAll(/<img[^>]*src=["']([^"']+)["'][^>]*>/gi)];
@@ -318,6 +432,85 @@ function extractImageUrls(rawQuestion: string, sourceUrl: string) {
   });
 
   return imageUrls.length > 0 ? [...new Set(imageUrls)] : undefined;
+}
+
+function extractPromptImageUrls(rawQuestion: string, sourceUrl: string) {
+  const { $, root } = loadQuestionHtml(rawQuestion);
+  stripChoiceMarkup($, root);
+  const imageUrls = root.find("img")
+    .toArray()
+    .flatMap((element) => {
+      try {
+        const src = $(element).attr("src");
+        return src ? [new URL(src, sourceUrl).toString()] : [];
+      } catch {
+        return [];
+      }
+    });
+
+  return imageUrls.length > 0 ? [...new Set(imageUrls)] : undefined;
+}
+
+function extractChoicesFromHtml(rawQuestion: string, sourceUrl: string): QuestionChoice[] {
+  const { $, root } = loadQuestionHtml(rawQuestion);
+  const choices = root.find(".choice")
+    .toArray()
+    .flatMap((element) => {
+      const idMatch = $(element).text().match(/([A-Da-d])/);
+      if (!idMatch) {
+        return [];
+      }
+
+      const id = idMatch[1].toUpperCase();
+      const choiceCell = $(element).closest("td").next("td");
+      const text = choiceCell.text().replace(/\s+/g, " ").trim();
+      const imageUrl = choiceCell.find("img").toArray().flatMap((image) => {
+        try {
+          const src = $(image).attr("src");
+          return src ? [new URL(src, sourceUrl).toString()] : [];
+        } catch {
+          return [];
+        }
+      })[0];
+
+      if (!text && !imageUrl) {
+        return [];
+      }
+
+      return [{
+        id,
+        text: text || `Image option ${id}`,
+        imageUrl,
+      } satisfies QuestionChoice];
+    });
+
+  const uniqueChoices = new Map<string, QuestionChoice>();
+  for (const choice of choices) {
+    if (!uniqueChoices.has(choice.id)) {
+      uniqueChoices.set(choice.id, choice);
+    }
+  }
+
+  return [...uniqueChoices.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function loadQuestionHtml(rawQuestion: string) {
+  const decodedQuestion = decode(rawQuestion);
+  const $ = cheerio.load(`<div data-question-root="true">${decodedQuestion}</div>`);
+  const root = $("[data-question-root='true']");
+  return { $, root };
+}
+
+function stripChoiceMarkup($: cheerio.CheerioAPI, root: cheerio.Cheerio<any>) {
+  root.find(".choice").each((_, element) => {
+    const table = $(element).closest("table");
+    if (table.length > 0) {
+      table.remove();
+      return;
+    }
+
+    $(element).remove();
+  });
 }
 
 function extractChoices(prompt: string): QuestionChoice[] {
@@ -356,7 +549,7 @@ export function difficultyBandFromLevel(level: number): DifficultyBand {
 }
 
 function inferSubject(href: string, line: string): Subject {
-  return /\d+(oa|nbt|md|g)/i.test(href) || /Operations|Geometry|Base Ten|Measurement/i.test(line)
+  return /\d+(oa|nbt|md|g|nf)|math_core|ccm/i.test(href) || /Operations|Geometry|Base Ten|Measurement|Fractions/i.test(line)
     ? "math"
     : "ela";
 }
@@ -387,60 +580,136 @@ function extractTitle(line: string, standardCode: string) {
 }
 
 function deriveStandardCode(subject: Subject, domain: string, testNumber: number, href: string) {
+  const normalizedHref = href.toLowerCase();
+
   if (subject === "math") {
-    const mathCode = href.match(/1(oa|nbt|md|g)/i)?.[1]?.toUpperCase();
+    const mathCode = normalizedHref.match(/(?:^|[^a-z])(oa|nbt|md|g|nf)(?:[^a-z]|$)/i)?.[1]?.toUpperCase();
     if (mathCode) {
-      return `1.${mathCode}.${testNumber}`;
+      return `${extractGradeFromHref(normalizedHref) ?? 1}.${mathCode}.${testNumber}`;
     }
   }
 
-  const prefix = subject === "math" ? "1.MATH" : "1.ELA";
+  const grade = extractGradeFromHref(normalizedHref) ?? 1;
+  const prefix = subject === "math" ? `${grade}.MATH` : `${grade}.ELA`;
   return `${prefix}.${slugify(domain).toUpperCase()}.${testNumber}`;
 }
 
 function isValidImportedQuestion(question: PrepdogQuestion) {
   return (
     question.prompt.length > 0 &&
-    question.choices.length >= 4 &&
-    question.choices.every((choice) => choice.text.length > 2 && choice.text !== choice.id) &&
+    question.choices.length >= 3 &&
+    question.choices.every((choice) => Boolean(choice.imageUrl) || (choice.text.length > 0 && choice.text !== choice.id)) &&
     question.choices.some((choice) => choice.id === question.correctChoiceId)
   );
 }
 
-function inferDomainFromHref(href: string) {
-  if (/1oa/i.test(href)) {
+function inferDomainFromHref(href: string, grade?: number, subject?: Subject) {
+  if (/oa/i.test(href)) {
     return "Operations & Algebraic Thinking";
   }
 
-  if (/1nbt/i.test(href)) {
+  if (/nbt/i.test(href)) {
     return "Number & Operations in Base Ten";
   }
 
-  if (/1md/i.test(href)) {
+  if (/md/i.test(href)) {
     return "Measurement & Data";
   }
 
-  if (/1g/i.test(href)) {
+  if (/(?:^|[^a-z])g(?:[^a-z]|$)|geometry/i.test(href)) {
     return "Geometry";
+  }
+
+  if (/nf|fractions?/i.test(href)) {
+    return "Number & Operations - Fractions";
+  }
+
+  if (/\/(l\.|language)|language/i.test(href)) {
+    return "Language";
+  }
+
+  if (/\/(rf\.)|foundational/i.test(href)) {
+    return "Foundational Skills";
+  }
+
+  if (/\/(ri\.)|informational/i.test(href)) {
+    return "Reading: Informational Text";
+  }
+
+  if (/\/(rl\.)|literature/i.test(href)) {
+    return "Reading: Literature";
+  }
+
+  if (/\/(w\.)|writing/i.test(href)) {
+    return "Writing";
+  }
+
+  if (subject === "ela") {
+    return "Language";
+  }
+
+  if (subject === "math") {
+    return grade && grade >= 3 ? "Operations & Algebraic Thinking" : "Measurement & Data";
   }
 }
 
-function inferClusterFromHref(href: string) {
-  if (/1oa/i.test(href)) {
+function inferClusterFromHref(href: string, _grade?: number, subject?: Subject) {
+  if (/oa/i.test(href)) {
     return "Represent and solve problems involving addition and subtraction";
   }
 
-  if (/1nbt/i.test(href)) {
+  if (/nbt/i.test(href)) {
     return "Understand place value";
   }
 
-  if (/1md/i.test(href)) {
-    return "Tell and write time";
+  if (/md/i.test(href)) {
+    return "Solve problems involving measurement and data";
   }
 
-  if (/1g/i.test(href)) {
+  if (/(?:^|[^a-z])g(?:[^a-z]|$)|geometry/i.test(href)) {
     return "Reason with shapes and their attributes";
   }
+
+  if (/nf|fractions?/i.test(href)) {
+    return "Develop understanding of fractions as numbers";
+  }
+
+  if (/\/(l\.|language)|language/i.test(href)) {
+    return "Conventions of Standard English";
+  }
+
+  if (/\/(rf\.)|foundational/i.test(href)) {
+    return "Phonics and Word Recognition";
+  }
+
+  if (/\/(ri\.)|informational/i.test(href) || /\/(rl\.)|literature/i.test(href)) {
+    return "Key Ideas and Details";
+  }
+
+  if (/\/(w\.)|writing/i.test(href)) {
+    return "Text Types and Purposes";
+  }
+
+  if (subject === "ela") {
+    return "Conventions of Standard English";
+  }
+}
+
+function extractGradeFromHref(href: string) {
+  const match = href.match(/\/(\d)(?:st|nd|rd|th)\//i);
+  return match ? Number(match[1]) : undefined;
+}
+
+function extractTitleFromHref(href: string) {
+  const fileName = href.split("/").pop()?.replace(/\.html$/i, "");
+  if (!fileName) {
+    return undefined;
+  }
+
+  return decode(fileName)
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function slugify(value: string) {

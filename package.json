@@ -9,7 +9,9 @@
     "deploy:firebase-static": "pnpm build:firebase-static && firebase deploy --only hosting",
     "lint": "pnpm -r lint",
     "test": "pnpm --filter @prepdog/assessment test",
-    "import:prepdog": "tsx scripts/import-prepdog.ts"
+    "import:prepdog": "tsx scripts/import-prepdog.ts",
+    "reset:prepdog-content": "tsx scripts/reset-imported-content.ts",
+    "reimport:prepdog-grades-2-6": "tsx scripts/reimport-grades-2-6.ts"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
