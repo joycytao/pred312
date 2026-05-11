@@ -293,7 +293,10 @@ export function parsePrepDogTestPage(html: string, pool: QuestionPool): Imported
       correctChoiceId,
       difficultyLevel,
       difficultyBand: difficultyBandFromLevel(difficultyLevel),
-      speechText: `${promptWithoutChoices} ${resolvedChoices.map((choice) => `${choice.id}. ${choice.text}`).join(" ")}`,
+      speechText: `<speak>
+        ${promptWithoutChoices}
+        ${resolvedChoices.map((choice) => `Choice ${choice.id}: ${choice.text} <break time="1s"/>`).join(" ")}
+      </speak>`,
       sourceUrl: pool.sourceUrl,
       sourceQuestionIndex: index + 1,
     } satisfies PrepdogQuestion;
@@ -329,7 +332,10 @@ function buildMathDemoQuestions(): PrepdogQuestion[] {
       correctChoiceId: choices[0].id,
       difficultyLevel,
       difficultyBand: difficultyBandFromLevel(difficultyLevel),
-      speechText: `${prompt} ${choices.map((choice) => `${choice.id}. ${choice.text}`).join(" ")}`,
+      speechText: `<speak>
+        ${prompt}
+        ${choices.map((choice) => `Choice ${choice.id}: ${choice.text} <break time="1s"/>`).join(" ")},
+      </speak>`,
     };
   });
 }

@@ -40,7 +40,7 @@ import {
   PARENT_SYNC_MESSAGE,
   SUPPORTED_GRADES,
 } from "./parent-settings";
-import { selectSessionQuestion } from "./starting-question";
+import { createSessionOffset, selectSessionQuestion } from "./starting-question";
 
 type ResponseRecord = {
   questionNumber: number;
@@ -59,7 +59,7 @@ const SUBJECT_LABELS: Record<Subject, string> = {
   math: "Math",
 };
 
-const TOTAL_QUESTIONS = 20;
+const TOTAL_QUESTIONS = 30;
 
 function getFirebaseClientConfig(): FirebaseOptions | null {
   if (
@@ -251,10 +251,14 @@ export function PrepdogApp() {
         },
       });
       const initialState = createInitialAssessmentState({ grade, subject });
+            const sessionOffset = createSessionOffset({
+              questionCount: questions.length,
+              randomValue: readSessionRandomValue(),
+            });
       const firstQuestion = selectSessionQuestion({
         state: initialState,
         questions,
-        sessionOffset: sessionStartOffsetRef.current,
+              sessionOffset,
       });
 
       if (!firstQuestion) {
@@ -262,7 +266,7 @@ export function PrepdogApp() {
         return;
       }
 
-      sessionStartOffsetRef.current += 1;
+            sessionStartOffsetRef.current = sessionOffset;
 
       setActiveSubject(subject);
       setQuestionBank(questions);
@@ -283,7 +287,7 @@ export function PrepdogApp() {
     }
 
     const utterance = new SpeechSynthesisUtterance(currentQuestion.speechText);
-    utterance.rate = 0.92;
+    utterance.rate = 0.75;
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
   }
@@ -303,7 +307,7 @@ export function PrepdogApp() {
     const nextQuestion = selectSessionQuestion({
       state: resolvedState,
       questions: questionBank,
-      sessionOffset: sessionStartOffsetRef.current - 1,
+      sessionOffset: sessionStartOffsetRef.current,
     });
     setAssessmentState(resolvedState);
     setCurrentQuestion(nextQuestion ?? null);
@@ -1066,4 +1070,14 @@ function formatSavedAt(value: string) {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
+}
+
+function readSessionRandomValue() {
+  if (typeof window !== "undefined" && "crypto" in window) {
+    const values = new Uint32Array(1);
+    window.crypto.getRandomValues(values);
+    return values[0] / 4294967296;
+  }
+
+  return Math.random();
 }
