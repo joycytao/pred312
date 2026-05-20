@@ -34,6 +34,15 @@ const INITIAL_ABILITY_BY_GRADE: Record<number, number> = {
 	2: 5.8,
 	3: 6.3,
 };
+const MAP_LIKE_BASELINE_BY_GRADE: Record<number, number> = {
+	1: 174,
+	2: 181,
+	3: 188,
+	4: 194,
+	5: 200,
+	6: 205,
+};
+const MAP_LIKE_POINTS_PER_ABILITY = 8;
 
 export function createInitialAssessmentState(input: {
 	grade: number;
@@ -49,7 +58,7 @@ export function createInitialAssessmentState(input: {
 		questionNumber: 1,
 		correctCount: 0,
 		incorrectCount: 0,
-		ritLikeScore: ritLikeScoreForAbility(abilityEstimate),
+		ritLikeScore: ritLikeScoreForAbility(abilityEstimate, input.grade),
 		usedQuestionIds: [],
 		recentDomains: [],
 	};
@@ -71,7 +80,7 @@ export function evaluateAnswer(
 		questionNumber: state.questionNumber + 1,
 		correctCount: state.correctCount + (input.isCorrect ? 1 : 0),
 		incorrectCount: state.incorrectCount + (input.isCorrect ? 0 : 1),
-		ritLikeScore: ritLikeScoreForAbility(nextAbility),
+		ritLikeScore: ritLikeScoreForAbility(nextAbility, state.grade),
 		usedQuestionIds: [...state.usedQuestionIds, input.question.id],
 		recentDomains: [...state.recentDomains, input.question.domain].slice(-3),
 	};
@@ -115,9 +124,11 @@ function difficultyBandForAbility(abilityEstimate: number): DifficultyBand {
 	return "medium";
 }
 
-function ritLikeScoreForAbility(abilityEstimate: number) {
-	const rawScore = 150 + (abilityEstimate - 1) * (80 / 9);
-	return Math.round(rawScore);
+function ritLikeScoreForAbility(abilityEstimate: number, grade: number) {
+	const gradeBaseline = MAP_LIKE_BASELINE_BY_GRADE[grade] ?? (174 + (grade - 1) * 6);
+	const baselineAbility = INITIAL_ABILITY_BY_GRADE[grade] ?? 5;
+	const rawScore = gradeBaseline + (abilityEstimate - baselineAbility) * MAP_LIKE_POINTS_PER_ABILITY;
+	return Math.round(Math.min(220, Math.max(140, rawScore)));
 }
 
 function roundToSingleDecimal(value: number) {

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { AssessmentState } from "@prepdog/assessment";
-import type { PrepdogQuestion } from "@prepdog/content";
+import { createInitialAssessmentState, evaluateAnswer, type AssessmentState } from "@prepdog/assessment";
+import { buildDemoQuestionBank, type PrepdogQuestion } from "@prepdog/content";
 
-import { selectSessionQuestion } from "./starting-question";
+import { createSessionOffset, selectSessionQuestion } from "./starting-question";
 
 const initialState: AssessmentState = {
   grade: 1,
@@ -79,6 +79,12 @@ const questions: PrepdogQuestion[] = [
 ];
 
 describe("selectSessionQuestion", () => {
+  it("derives different fresh-session offsets from the random seed", () => {
+    expect(createSessionOffset({ questionCount: 5, randomValue: 0 })).toBe(0);
+    expect(createSessionOffset({ questionCount: 5, randomValue: 0.39 })).toBe(1);
+    expect(createSessionOffset({ questionCount: 5, randomValue: 0.99 })).toBe(4);
+  });
+
   it("rotates the opening question across fresh sessions within the starting band", () => {
     const firstSessionQuestion = selectSessionQuestion({
       state: initialState,
@@ -203,5 +209,211 @@ describe("selectSessionQuestion", () => {
     });
 
     expect(nextQuestion?.domain).not.toBe("Geometry");
+  });
+
+  it("avoids showing the same domain on back-to-back questions when another domain is available", () => {
+    const quotaQuestions: PrepdogQuestion[] = [
+      {
+        ...questions[0],
+        id: "ops-medium",
+        domain: "Operations & Algebraic Thinking",
+        difficultyLevel: 5,
+      },
+      {
+        ...questions[0],
+        id: "geometry-medium-a",
+        domain: "Geometry",
+        difficultyLevel: 5,
+      },
+      {
+        ...questions[0],
+        id: "geometry-medium-b",
+        domain: "Geometry",
+        difficultyLevel: 5,
+      },
+      {
+        ...questions[0],
+        id: "measurement-medium",
+        domain: "Measurement & Data",
+        difficultyLevel: 5,
+      },
+      {
+        ...questions[0],
+        id: "measurement-medium-b",
+        domain: "Measurement & Data",
+        difficultyLevel: 5,
+      },
+      {
+        ...questions[0],
+        id: "base-ten-medium",
+        domain: "Number & Operations in Base Ten",
+        difficultyLevel: 5,
+      },
+    ];
+
+    const state: AssessmentState = {
+      ...initialState,
+      questionNumber: 5,
+      usedQuestionIds: ["ops-medium", "measurement-medium", "base-ten-medium", "geometry-medium-a"],
+      recentDomains: [],
+    };
+
+    const nextQuestion = selectSessionQuestion({
+      state,
+      questions: quotaQuestions,
+      sessionOffset: 0,
+    });
+
+    expect(nextQuestion?.domain).not.toBe("Geometry");
+  });
+
+  it("prioritizes domains that are behind the current quota round", () => {
+    const quotaQuestions: PrepdogQuestion[] = [
+      {
+        ...questions[0],
+        id: "ops-medium-a",
+        domain: "Operations & Algebraic Thinking",
+        difficultyLevel: 5,
+      },
+      {
+        ...questions[0],
+        id: "ops-medium-b",
+        domain: "Operations & Algebraic Thinking",
+        difficultyLevel: 5,
+      },
+      {
+        ...questions[0],
+        id: "geometry-medium-a",
+        domain: "Geometry",
+        difficultyLevel: 5,
+      },
+      {
+        ...questions[0],
+        id: "geometry-medium-b",
+        domain: "Geometry",
+        difficultyLevel: 5,
+      },
+      {
+        ...questions[0],
+        id: "measurement-medium-a",
+        domain: "Measurement & Data",
+        difficultyLevel: 5,
+      },
+      {
+        ...questions[0],
+        id: "base-ten-medium-a",
+        domain: "Number & Operations in Base Ten",
+        difficultyLevel: 5,
+      },
+    ];
+
+    const state: AssessmentState = {
+      ...initialState,
+      questionNumber: 5,
+      usedQuestionIds: ["ops-medium-a", "ops-medium-b", "geometry-medium-a", "geometry-medium-b"],
+      recentDomains: [],
+    };
+
+    const nextQuestion = selectSessionQuestion({
+      state,
+      questions: quotaQuestions,
+      sessionOffset: 0,
+    });
+
+    expect(["Measurement & Data", "Number & Operations in Base Ten"]).toContain(nextQuestion?.domain);
+  });
+
+  it("can use nearby difficulty bands to avoid collapsing into one domain", () => {
+    const crossBandQuestions: PrepdogQuestion[] = [
+      {
+        ...questions[0],
+        id: "geometry-medium-a",
+        domain: "Geometry",
+        difficultyLevel: 5,
+        difficultyBand: "medium",
+      },
+      {
+        ...questions[0],
+        id: "geometry-medium-b",
+        domain: "Geometry",
+        difficultyLevel: 6,
+        difficultyBand: "medium",
+      },
+      {
+        ...questions[0],
+        id: "measurement-low-a",
+        domain: "Measurement & Data",
+        difficultyLevel: 4,
+        difficultyBand: "low",
+      },
+      {
+        ...questions[0],
+        id: "base-ten-high-a",
+        domain: "Number & Operations in Base Ten",
+        difficultyLevel: 7,
+        difficultyBand: "high",
+      },
+      {
+        ...questions[0],
+        id: "ops-low-a",
+        domain: "Operations & Algebraic Thinking",
+        difficultyLevel: 4,
+        difficultyBand: "low",
+      },
+    ];
+
+    const state: AssessmentState = {
+      ...initialState,
+      currentBand: "medium",
+      abilityEstimate: 5.1,
+      questionNumber: 5,
+      usedQuestionIds: ["geometry-medium-a"],
+      recentDomains: [],
+    };
+
+    const nextQuestion = selectSessionQuestion({
+      state,
+      questions: crossBandQuestions,
+      sessionOffset: 0,
+    });
+
+    expect(nextQuestion?.domain).not.toBe("Geometry");
+  });
+
+  it("keeps fallback math sessions reasonably balanced across domains", () => {
+    const demoQuestions = buildDemoQuestionBank(1, "math");
+    const sessionOffset = createSessionOffset({ questionCount: demoQuestions.length, randomValue: 0.37 });
+    let state = createInitialAssessmentState({ grade: 1, subject: "math" });
+    const domainCounts = new Map<string, number>();
+
+    for (let index = 0; index < 20; index += 1) {
+      const nextQuestion = selectSessionQuestion({
+        state,
+        questions: demoQuestions,
+        sessionOffset,
+      });
+
+      expect(nextQuestion).toBeDefined();
+
+      if (!nextQuestion) {
+        break;
+      }
+
+      domainCounts.set(nextQuestion.domain, (domainCounts.get(nextQuestion.domain) ?? 0) + 1);
+      state = evaluateAnswer(state, {
+        question: {
+          id: nextQuestion.id,
+          domain: nextQuestion.domain,
+          difficultyLevel: nextQuestion.difficultyLevel,
+          difficultyBand: nextQuestion.difficultyBand,
+        },
+        isCorrect: index % 2 === 0,
+      });
+    }
+
+    expect(domainCounts.get("Operations & Algebraic Thinking") ?? 0).toBeGreaterThanOrEqual(4);
+    expect(domainCounts.get("Number & Operations in Base Ten") ?? 0).toBeGreaterThanOrEqual(4);
+    expect(domainCounts.get("Measurement & Data") ?? 0).toBeGreaterThanOrEqual(4);
+    expect(domainCounts.get("Geometry") ?? 0).toBeGreaterThanOrEqual(4);
   });
 });

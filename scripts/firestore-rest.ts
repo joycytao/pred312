@@ -49,7 +49,13 @@ export async function countImportedContent(args: FilterArgs) {
 }
 
 export async function upsertImportedQuestionPoolViaRest(importedPool: ImportedQuestionPool) {
+  const existingQuestionDocuments = await listQuestionDocumentsByPoolId(importedPool.pool.id);
+  const nextQuestionIds = new Set(importedPool.questions.map((question) => question.id));
+  const staleQuestionDocuments = existingQuestionDocuments.filter((document) => !nextQuestionIds.has(document.id));
   const writes = [
+    ...staleQuestionDocuments.map((document) => ({
+      delete: document.name,
+    })),
     {
       update: {
         name: documentResourceName("questionPools", importedPool.pool.id),
@@ -82,6 +88,14 @@ export async function upsertImportedQuestionPoolViaRest(importedPool: ImportedQu
   });
 }
 
+export function selectStaleQuestionDocuments(
+  existingQuestionDocuments: FirestoreDocumentReference[],
+  nextQuestionIds: string[],
+) {
+  const nextQuestionIdSet = new Set(nextQuestionIds);
+  return existingQuestionDocuments.filter((document) => !nextQuestionIdSet.has(document.id));
+}
+
 function documentResourceName(collectionId: string, documentId: string) {
   return `projects/${resolveProjectId()}/databases/${resolveDatabaseId()}/documents/${collectionId}/${encodeURIComponent(documentId)}`;
 }
@@ -98,6 +112,37 @@ async function listCollectionDocuments(collectionId: string, args: FilterArgs) {
       structuredQuery: {
         from: [{ collectionId }],
         ...(where ? { where } : {}),
+      },
+    }),
+  });
+
+  const payload = (await response.json()) as Array<{ document?: { name: string } }>;
+
+  return payload.flatMap((entry) => {
+    if (!entry.document?.name) {
+      return [];
+    }
+
+    return [{
+      name: entry.document.name,
+      id: entry.document.name.split("/").pop() ?? entry.document.name,
+    } satisfies FirestoreDocumentReference];
+  });
+}
+
+async function listQuestionDocumentsByPoolId(poolId: string) {
+  const response = await firestoreRestRequest(`${documentsBaseUrl()}:runQuery`, {
+    method: "POST",
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId: "questions" }],
+        where: {
+          fieldFilter: {
+            field: { fieldPath: "poolId" },
+            op: "EQUAL",
+            value: serializeValue(poolId),
+          },
+        },
       },
     }),
   });

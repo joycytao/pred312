@@ -293,10 +293,7 @@ export function parsePrepDogTestPage(html: string, pool: QuestionPool): Imported
       correctChoiceId,
       difficultyLevel,
       difficultyBand: difficultyBandFromLevel(difficultyLevel),
-      speechText: `<speak>
-        ${promptWithoutChoices}
-        ${resolvedChoices.map((choice) => `Choice ${choice.id}: ${choice.text} <break time="1s"/>`).join(" ")}
-      </speak>`,
+	      speechText: promptWithoutChoices,
       sourceUrl: pool.sourceUrl,
       sourceQuestionIndex: index + 1,
     } satisfies PrepdogQuestion;
@@ -310,14 +307,9 @@ export function parsePrepDogTestPage(html: string, pool: QuestionPool): Imported
 function buildMathDemoQuestions(): PrepdogQuestion[] {
   return Array.from({ length: 48 }, (_, index) => {
     const domainMeta = MATH_DOMAINS[index % MATH_DOMAINS.length];
-    const difficultyLevel = (index % 8) + 2;
-    const a = 4 + (index % 9);
-    const b = 2 + ((index * 3) % 8);
-    const isSubtraction = index % 3 === 0;
-    const answer = isSubtraction ? a + 10 - b : a + b;
-    const prompt = isSubtraction
-      ? `Milo had ${a + 10} stickers. He gave away ${b}. How many stickers does he have now?`
-      : `Lena had ${a} marbles. She found ${b} more. How many marbles does she have now?`;
+    const cycle = Math.floor(index / MATH_DOMAINS.length);
+    const difficultyLevel = (cycle % 8) + 2;
+    const { prompt, answer } = buildMathDemoPrompt(domainMeta.domain, cycle);
 
     const choices = buildNumberChoices(answer, index);
     return {
@@ -332,12 +324,54 @@ function buildMathDemoQuestions(): PrepdogQuestion[] {
       correctChoiceId: choices[0].id,
       difficultyLevel,
       difficultyBand: difficultyBandFromLevel(difficultyLevel),
-      speechText: `<speak>
-        ${prompt}
-        ${choices.map((choice) => `Choice ${choice.id}: ${choice.text} <break time="1s"/>`).join(" ")},
-      </speak>`,
+	      speechText: prompt,
     };
   });
+}
+
+function buildMathDemoPrompt(domain: string, cycle: number) {
+  switch (domain) {
+    case "Operations & Algebraic Thinking": {
+      const start = 8 + (cycle % 6);
+      const change = 2 + ((cycle * 2) % 5);
+      const isSubtraction = cycle % 2 === 0;
+      const answer = isSubtraction ? start + 6 - change : start + change;
+      const prompt = isSubtraction
+        ? `Milo had ${start + 6} stickers. He gave away ${change}. How many stickers does he have now?`
+        : `Lena had ${start} marbles. She found ${change} more. How many marbles does she have now?`;
+      return { prompt, answer };
+    }
+    case "Number & Operations in Base Ten": {
+      const tens = 1 + (cycle % 8);
+      const ones = 1 + ((cycle * 3) % 9);
+      return {
+        prompt: `Which number has ${tens} tens and ${ones} ones?`,
+        answer: tens * 10 + ones,
+      };
+    }
+    case "Measurement & Data": {
+      const firstLength = 6 + (cycle % 7);
+      const secondLength = 3 + ((cycle * 2) % 6);
+      return {
+        prompt: `A blue ribbon is ${firstLength} inches long. A red ribbon is ${secondLength} inches long. How many inches long are the two ribbons altogether?`,
+        answer: firstLength + secondLength,
+      };
+    }
+    case "Geometry": {
+      const shapeCount = 2 + (cycle % 5);
+      const sidesPerShape = cycle % 2 === 0 ? 4 : 3;
+      const shapeName = sidesPerShape === 4 ? "squares" : "triangles";
+      return {
+        prompt: `A picture shows ${shapeCount} ${shapeName}. How many sides are there in all?`,
+        answer: shapeCount * sidesPerShape,
+      };
+    }
+    default:
+      return {
+        prompt: "How many are there in all?",
+        answer: 4 + cycle,
+      };
+  }
 }
 
 function buildElaDemoQuestions(): PrepdogQuestion[] {
@@ -385,7 +419,7 @@ function buildElaDemoQuestions(): PrepdogQuestion[] {
       correctChoiceId: template.correct,
       difficultyLevel,
       difficultyBand: difficultyBandFromLevel(difficultyLevel),
-      speechText: `${template.prompt(index)} ${choices.map((choice) => `${choice.id}. ${choice.text}`).join(" ")}`,
+	      speechText: template.prompt(index),
     };
   });
 }
@@ -469,7 +503,7 @@ function extractChoicesFromHtml(rawQuestion: string, sourceUrl: string): Questio
 
       const id = idMatch[1].toUpperCase();
       const choiceCell = $(element).closest("td").next("td");
-      const text = choiceCell.text().replace(/\s+/g, " ").trim();
+	      const text = extractChoiceCellText($, choiceCell);
       const imageUrl = choiceCell.find("img").toArray().flatMap((image) => {
         try {
           const src = $(image).attr("src");
@@ -498,6 +532,16 @@ function extractChoicesFromHtml(rawQuestion: string, sourceUrl: string): Questio
   }
 
   return [...uniqueChoices.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function extractChoiceCellText($: cheerio.CheerioAPI, choiceCell: cheerio.Cheerio<any>) {
+  const normalizedChoiceCell = choiceCell.clone();
+  normalizedChoiceCell.find("sup").each((_, element) => {
+    const text = $(element).text().trim();
+    $(element).replaceWith(text ? `${text} ` : " ");
+  });
+
+  return normalizedChoiceCell.text().replace(/\s+/g, " ").trim();
 }
 
 function loadQuestionHtml(rawQuestion: string) {

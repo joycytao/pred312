@@ -1,6 +1,7 @@
 import { extractGradePagePools, parsePrepDogTestPage, type Subject } from "@prepdog/content";
 
 import { upsertImportedQuestionPoolViaRest } from "./firestore-rest";
+import { fetchText } from "./import-prepdog-fetch";
 
 const BASE_URL = "https://www.prepdog.org";
 
@@ -79,15 +80,6 @@ function ordinalFolder(grade: number) {
   }
 
   return `${grade}th`;
-}
-
-async function fetchText(url: string) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${url}: ${response.status}`);
-  }
-
-  return response.text();
 }
 
 main().catch((error) => {

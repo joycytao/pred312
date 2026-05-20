@@ -1,0 +1,129 @@
+完整規格書
+
+1. 專案願景 (Project Vision)
+
+本專案旨在解決傳統教材轉換測驗耗時的問題。透過 Gemini AI 的理解能力，將靜態教材（文字或檔案）一鍵轉化為互動式的語音識字測驗，並利用 Firebase 提供跨平台的資料一致性（網頁與未來的 Mobile App）。
+
+2. 系統架構與技術規格 (Technical Specs)
+
+2.1 核心技術棧
+
+前端：HTML5, Tailwind CSS, JavaScript (ES6+)。
+
+後端 (BaaS)：Firebase Project (Firestore, Auth, Hosting)。
+
+AI 整合：
+
+Gemini 2.5 Flash：負責教材文本分析、生字提取及 JSON 題目格式生成。
+
+Gemini TTS：負責將題目與反饋轉換為高品質音檔。
+
+部署環境：Firebase Hosting (支援與現有專案共存之子目錄部署)。
+
+2.2 資料庫設計 (Firestore Schema)
+
+為了支援跨平台共用，資料存儲於以下標準路徑：
+projects/{projectId}/databases/(default)/documents/artifacts/{appId}/public/data/questions/{questionId}
+
+文件欄位：
+
+text (string): 包含空格 ____ 的題目句子。
+
+answer (string): 正確漢字。
+
+options (array): 兩個或以上的錯誤干擾選項。
+
+createdAt (timestamp): 生成時間。
+
+sourceText (string): 來源教材摘要，用於追溯題目出處。
+
+3. 功能規格 (Functional Specifications)
+
+3.1 雙入口路由系統
+
+系統透過 URL Query Parameter 進行邏輯分流：
+
+學生介面：{your-domain}/quiz/ (入口隱藏管理功能，確保專注學習)。
+
+管理介面：{your-domain}/quiz/?mode=admin (提供資源上傳與 AI 出題功能)。
+
+3.2 老師管理功能 (Admin Dashboard)
+
+資源導入：
+
+手動輸入：直接貼上課文或詩詞。
+
+檔案上傳：支援拖放 .txt 或 .md 或 .pdf 或 .doc 檔案，系統自動提取全文。
+
+AI 智慧出題：
+
+可調整生成量（5/10/20/50 題）。
+
+AI 須確保生成的題目具備教學意義，且干擾項（Options）須符合形聲、形似或音近原則。
+
+雲端同步：題目生成後即時寫入 Firestore，無需手動點擊保存。
+
+3.3 學生測驗功能 (Student UI)
+
+動態載入：從 Firestore 隨機選取 20 題（Random Sampling）。
+
+多模態學習：
+
+視覺：清晰的文字顯示與色彩反饋。
+
+聽覺：進入題目自動朗讀。
+
+互動反饋：答錯時顯示正確答案，並進行語音糾正。
+
+App說: "你選擇的是xxx, 正確答案是 ooo" 同時標記正確的答案。
+
+
+4. 使用者行為 (User Behavior)
+
+4.1 老師端 (Teacher Journey)
+
+老師透過秘密網址 ?mode=admin 登入。
+
+將本週教材檔案拖入上傳區。
+
+點擊「開始 AI 轉換」，並從日誌視窗觀察寫入進度。
+
+看到「題庫量」增加後，確認佈署成功。
+
+4.2 學生端 (Student Journey)
+
+學生開啟首頁，看到「識字小達人」標題。
+
+點擊「開始隨機測驗」。
+
+聽到題目後，在下方選項中選出正確字。
+
+答對時進行下一題； 答錯則學習正確讀音:
+
+測驗結束後顯示總得分。
+
+5. 預期結果 (Expected Outcomes)
+
+5.1 教學效能預期
+
+生成速度：50 題的分析與入庫應在 30 秒內完成。
+
+出題品質：AI 不得產生亂碼或無意義的選項。
+
+跨平台一致性：當 Web 版更新題目後，未來的手機 App 應能在重新整理後立即抓取到新題目。
+
+5.2 技術預期
+
+共存性：部署於子目錄 prepd-312.web.app/chinese/ 後，不應干擾根目錄 prepd-312.web.app/ 的原有網站運作。
+
+安全性：學生無法透過簡單的點擊進入管理介面。
+
+穩定性：在高流量（多人同時測驗）時，Firebase Firestore 應能維持低延遲響應。
+
+6. 未來擴充潛力
+
+Mobile Native App：直接使用相同的 Firebase SDK 讀取此 Firestore 路徑。
+
+難度分級：根據生字的筆畫或年級進行自動分類。
+
+學習日誌：將學生的答題狀況記錄在 /users/{uid}/stats 路徑下，供老師追蹤進度。

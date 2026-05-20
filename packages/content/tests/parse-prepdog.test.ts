@@ -95,4 +95,32 @@ describe("parsePrepDogTestPage", () => {
       { id: "C", text: "Image option C", imageUrl: "https://www.prepdog.org/1st/choices/c.png" },
     ]);
   });
+
+  it("keeps superscript counting strategies readable in answer choices", () => {
+    const pool: QuestionPool = {
+      id: "1-math-number-operations-in-base-ten-11",
+      grade: 1,
+      subject: "math",
+      domain: "Number & Operations in Base Ten",
+      cluster: "Understand place value",
+      standardCode: "1.NBT.11",
+      title: "Base Ten Test 11",
+      testNumber: 11,
+      sourceUrl: "https://www.prepdog.org/1st/1nbt4.html",
+    };
+
+    const html = `
+      <script>
+        ansMap[0] = 'C';
+        questionText[0] = '<div class="default">Which of the following is not a way to solve the following problem? 31+14</div><div class="default"><table cellpadding="0" cellspacing="0" width="95%" border="0"><tr valign="baseline"><td width="4%"><div class="choice">a.</div></td><td width="46%"><span class="default">30+10+1+4</span></td><td width="4%"><div class="choice">c.</div></td><td width="46%"><span class="default">31+4</span></td></tr><tr valign="baseline"><td><div class="choice">b.</div></td><td><span class="default">40+<sup>1</sup>41+<sup>1</sup>42+<sup>1</sup>43+<sup>1</sup>44+<sup>1</sup>45</span></td><td><div class="choice">d.</div></td><td><span class="default">31+10+4</span></td></tr></table></div>';
+      </script>
+    `;
+
+    const result = parsePrepDogTestPage(html, pool);
+
+    expect(result.questions[0]?.choices).toContainEqual({
+      id: "B",
+      text: "40+1 41+1 42+1 43+1 44+1 45",
+    });
+  });
 });

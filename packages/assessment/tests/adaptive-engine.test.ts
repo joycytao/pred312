@@ -47,6 +47,7 @@ describe("adaptive engine", () => {
     expect(state.abilityEstimate).toBe(5);
     expect(state.currentBand).toBe("medium");
     expect(state.questionNumber).toBe(1);
+    expect(state.ritLikeScore).toBe(174);
   });
 
   it("moves ability upward after a correct answer", () => {

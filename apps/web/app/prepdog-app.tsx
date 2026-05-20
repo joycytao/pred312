@@ -1,7 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useEffectEvent, useMemo, useRef, useState, useTransition } from "react";
 import { getApp, getApps, initializeApp, type FirebaseOptions } from "firebase/app";
 import { GoogleAuthProvider, getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, type User } from "firebase/auth";
 import { collection, doc, getDoc, getDocs, getFirestore, query, setDoc, where } from "firebase/firestore";
@@ -19,8 +20,8 @@ import {
 } from "./assessment-flow";
 import {
   buildFallbackExplanation,
-  shouldUseLocalExplanationFallback,
 } from "./explanation-fallback";
+import { getQuestionSpeechText } from "./question-speech";
 import { getQuestionAvailabilityMessage } from "./question-availability";
 import { resolveQuestionBank } from "./question-source";
 import {
@@ -41,6 +42,7 @@ import {
   SUPPORTED_GRADES,
 } from "./parent-settings";
 import { createSessionOffset, selectSessionQuestion } from "./starting-question";
+import { getSubjectForPathname, getSubjectPath } from "./subject-route";
 
 type ResponseRecord = {
   questionNumber: number;
@@ -59,7 +61,7 @@ const SUBJECT_LABELS: Record<Subject, string> = {
   math: "Math",
 };
 
-const TOTAL_QUESTIONS = 30;
+const TOTAL_QUESTIONS = 20;
 
 function getFirebaseClientConfig(): FirebaseOptions | null {
   if (
@@ -94,7 +96,9 @@ function getFirebaseClientApp() {
   return getApps().length > 0 ? getApp() : initializeApp(config);
 }
 
-export function PrepdogApp() {
+export function PrepdogApp({ initialSubject = null }: { initialSubject?: Subject | null } = {}) {
+  const pathname = usePathname();
+  const router = useRouter();
   const [grade, setGrade] = useState(() => {
     if (typeof window === "undefined") {
       return 1;
@@ -130,11 +134,10 @@ export function PrepdogApp() {
   const [isExplaining, startExplaining] = useTransition();
   const [isSubmittingAuth, startSubmittingAuth] = useTransition();
   const availableGrades = SUPPORTED_GRADES;
+  const routeSubject = getSubjectForPathname(pathname);
+  const requestedSubject = initialSubject ?? routeSubject;
   const gradeRef = useRef(grade);
   const sessionStartOffsetRef = useRef(0);
-  const useLocalExplanationFallback = shouldUseLocalExplanationFallback(
-    process.env.NEXT_PUBLIC_STATIC_FIREBASE_HOSTING,
-  );
   const isFirebaseReady = isFirebaseClientConfigured();
   const syncIndicator = getSyncIndicator({
     isFirebaseConfigured: isFirebaseReady,
@@ -215,6 +218,18 @@ export function PrepdogApp() {
     void syncParentProfile(parentUser, grade);
   }, [grade, parentUser]);
 
+  const beginAssessmentForRoute = useEffectEvent((subject: Subject) => {
+    void beginAssessment(subject);
+  });
+
+  useEffect(() => {
+    if (!requestedSubject || activeSubject || assessmentState || currentQuestion || isLoadingQuestions) {
+      return;
+    }
+
+    beginAssessmentForRoute(requestedSubject);
+  }, [requestedSubject, activeSubject, assessmentState, currentQuestion, isLoadingQuestions]);
+
   const progressValue = useMemo(() => (responses.length / TOTAL_QUESTIONS) * 100, [responses.length]);
   const correctCount = useMemo(
     () => responses.filter((response) => response.isCorrect).length,
@@ -286,7 +301,7 @@ export function PrepdogApp() {
       return;
     }
 
-    const utterance = new SpeechSynthesisUtterance(currentQuestion.speechText);
+    const utterance = new SpeechSynthesisUtterance(getQuestionSpeechText(currentQuestion));
     utterance.rate = 0.75;
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
@@ -377,17 +392,6 @@ export function PrepdogApp() {
         isMath: assessmentState.subject === "math",
       });
 
-      if (useLocalExplanationFallback) {
-        setExplanation({
-          title: "Let's learn from this one",
-          body: fallbackExplanation,
-        });
-        setAssessmentState(transition.nextAssessmentState);
-        setPendingAssessmentState(transition.pendingAssessmentState);
-        setSelectedChoiceId(null);
-        return;
-      }
-
       try {
         const response = await fetch("/api/explain", {
           method: "POST",
@@ -436,6 +440,11 @@ export function PrepdogApp() {
     setExplanation(null);
     setPendingAssessmentState(null);
     setNoticeMessage(null);
+  }
+
+  function goHome() {
+    resetAssessment();
+    router.push("/");
   }
 
   function restartCurrentPractice() {
@@ -633,7 +642,7 @@ export function PrepdogApp() {
                             <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
                               {SUBJECT_LABELS[session.subject]} · Grade {session.grade}
                             </p>
-                            <p className="mt-2 text-lg font-semibold text-slate-900">RIT-like score {session.ritLikeScore}</p>
+                            <p className="mt-2 text-lg font-semibold text-slate-900">MAP-like estimate {session.ritLikeScore}</p>
                           </div>
                           <p className="text-xs text-slate-500">{formatSavedAt(session.savedAt)}</p>
                         </div>
@@ -691,9 +700,12 @@ export function PrepdogApp() {
               <section className="relative overflow-hidden rounded-[2.5rem] border border-white/60 bg-white/80 p-8 shadow-2xl backdrop-blur">
                 <Fireworks />
                 <p className="text-xs font-black uppercase tracking-[0.3em] text-emerald-600">Session complete</p>
-                <h2 className="mt-4 font-[family-name:var(--font-display)] text-5xl text-slate-900">RIT-like score {assessmentState.ritLikeScore}</h2>
+                <h2 className="mt-4 font-[family-name:var(--font-display)] text-5xl text-slate-900">MAP-like estimate {assessmentState.ritLikeScore}</h2>
                 <p className="mt-3 max-w-xl text-lg text-slate-700">
                   {SUBJECT_LABELS[activeSubject]} finished for Grade {grade}. Celebrate the progress, then check which question numbers need another look.
+                </p>
+                <p className="mt-3 max-w-xl text-sm leading-6 text-slate-500">
+                  This is a PrepDog MAP-like estimate, not an official NWEA MAP Growth RIT score.
                 </p>
                 <div className="mt-8 grid gap-4 sm:grid-cols-3">
                   <ResultStat label="Correct" value={correctCount} tone="green" />
@@ -798,7 +810,7 @@ export function PrepdogApp() {
                     <button
                       type="button"
                       className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white/75 px-5 py-3 text-sm font-semibold text-slate-600 shadow-[0_10px_30px_rgba(15,23,42,0.08)] transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:text-slate-900"
-                      onClick={resetAssessment}
+                      onClick={goHome}
                     >
                       <span className="text-base">⌂</span>
                       Home
@@ -858,7 +870,7 @@ export function PrepdogApp() {
                   className={`group relative overflow-hidden rounded-[2.5rem] border border-white/60 p-8 text-left shadow-xl transition hover:-translate-y-1 hover:shadow-2xl ${
                     subject === "ela" ? "bg-[#fff7ef]" : "bg-[#edf8ff]"
                   }`}
-                  onClick={() => beginAssessment(subject)}
+                  onClick={() => router.push(getSubjectPath(subject))}
                 >
                   <div className="absolute inset-x-0 top-0 h-2 bg-gradient-to-r from-amber-400 via-orange-400 to-pink-500" />
                   <p className="mt-3 text-xs font-black uppercase tracking-[0.3em] text-slate-500">Start test</p>
@@ -883,7 +895,7 @@ export function PrepdogApp() {
                 <ol className="mt-4 space-y-4 text-sm leading-6 text-slate-700">
                   <li>Choose a subject from the landing page.</li>
                   <li>Answer 20 adaptive questions for the selected grade.</li>
-                  <li>Tap 🗣️ next to the question when your child wants to hear the prompt and choices.</li>
+                  <li>Tap 🗣️ next to the question when your child wants to hear only the prompt.</li>
                   <li>Press ✅ only after checking the final answer choice.</li>
                 </ol>
               </div>

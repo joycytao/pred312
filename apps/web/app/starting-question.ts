@@ -7,6 +7,21 @@ const BAND_ORDER = {
   high: 2,
 } as const;
 
+export function createSessionOffset({
+  questionCount,
+  randomValue,
+}: {
+  questionCount: number;
+  randomValue: number;
+}) {
+  if (questionCount <= 0) {
+    return 0;
+  }
+
+  const normalizedRandomValue = Math.min(Math.max(randomValue, 0), 0.999999999);
+  return Math.floor(normalizedRandomValue * questionCount);
+}
+
 export function selectSessionQuestion({
   state,
   questions,
@@ -24,17 +39,29 @@ export function selectSessionQuestion({
     ? questions.find((question) => question.id === lastQuestionId)
     : undefined;
   const domainUsageCounts = countUsedDomains(state.usedQuestionIds, questions);
+  const availableDomains = [...new Set(questions.map((question) => question.domain))];
   const bandCandidates = unusedQuestions.filter(
     (question) => question.difficultyBand === state.currentBand,
   );
   const preferredQuestions = bandCandidates.length >= 2 ? bandCandidates : unusedQuestions;
-  const candidates = preferredQuestions
+  const recencyCandidates = preferredQuestions
     .filter((question) => !state.recentDomains.includes(question.domain))
     .concat(
       preferredQuestions.filter((question) =>
         state.recentDomains.includes(question.domain),
       ),
-    )
+    );
+  const quotaCandidates = filterCandidatesByDomainQuota({
+    candidates: recencyCandidates,
+    domainUsageCounts,
+    availableDomains,
+    usedQuestionCount: state.usedQuestionIds.length,
+  });
+  const candidates = filterConsecutiveDomainRepeat({
+    candidates: quotaCandidates,
+    lastDomain: lastQuestion?.domain,
+    availableDomains,
+  })
     .slice()
     .sort(
       (left, right) =>
@@ -52,6 +79,49 @@ export function selectSessionQuestion({
   }
 
   return candidates[((sessionOffset % candidates.length) + candidates.length) % candidates.length];
+}
+
+function filterCandidatesByDomainQuota({
+  candidates,
+  domainUsageCounts,
+  availableDomains,
+  usedQuestionCount,
+}: {
+  candidates: PrepdogQuestion[];
+  domainUsageCounts: Map<string, number>;
+  availableDomains: string[];
+  usedQuestionCount: number;
+}) {
+  if (availableDomains.length < 3) {
+    return candidates;
+  }
+
+  const completedRounds = Math.floor(usedQuestionCount / availableDomains.length);
+  const underQuotaCandidates = candidates.filter(
+    (question) => (domainUsageCounts.get(question.domain) ?? 0) <= completedRounds,
+  );
+
+  return underQuotaCandidates.length > 0 ? underQuotaCandidates : candidates;
+}
+
+function filterConsecutiveDomainRepeat({
+  candidates,
+  lastDomain,
+  availableDomains,
+}: {
+  candidates: PrepdogQuestion[];
+  lastDomain?: string;
+  availableDomains: string[];
+}) {
+  if (!lastDomain || availableDomains.length < 3) {
+    return candidates;
+  }
+
+  const differentDomainCandidates = candidates.filter(
+    (question) => question.domain !== lastDomain,
+  );
+
+  return differentDomainCandidates.length > 0 ? differentDomainCandidates : candidates;
 }
 
 function compareDirectionFromLastQuestion(
